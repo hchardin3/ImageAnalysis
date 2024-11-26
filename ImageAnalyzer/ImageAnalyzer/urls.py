@@ -25,4 +25,5 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('', include('analyzer.urls')),
     path('delete/', views.delete_image, name='delete_image'),
+    path('analyze/', views.analyze_image, name='analyze_image'),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
