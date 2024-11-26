@@ -54,6 +54,20 @@
         .uploaded-image-container {
             position: relative;
         }
+        .bounding-box-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+        .bounding-box {
+            position: absolute;
+            border: 2px solid red;
+            pointer-events: none;
+            box-sizing: border-box;
+        }
     </style>
 </head>
 <body>
@@ -88,16 +102,13 @@
     <!-- JavaScript -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.1/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-        // Selectors and CSRF token
         const dragBox = document.getElementById('drag-box');
         const inputFile = document.getElementById('image-input');
         const uploadedImageContainer = document.getElementById('uploaded-image-container');
         const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
-    
-        /**
-         * Upload Image
-         */
-         const uploadImage = (file) => {
+
+        // Upload Image
+        const uploadImage = (file) => {
             const formData = new FormData();
             formData.append('image', file);
 
@@ -109,7 +120,6 @@
             .then(response => response.json())
             .then(data => {
                 if (data.file_url) {
-                    console.log(`Uploaded file URL: ${data.file_url}`); // Debugging
                     displayUploadedImage(data.file_url);
                 } else {
                     alert('Failed to upload image. Please try again.');
@@ -120,17 +130,12 @@
                 alert('An error occurred while uploading the image.');
             });
         };
-    
-        /**
-         * Delete Image
-         */
+
+        // Delete Image
         const deleteImage = (fileUrl) => {
             fetch('/delete/', {
                 method: 'POST',
-                headers: {
-                    'X-CSRFToken': csrfToken,
-                    'Content-Type': 'application/json',
-                },
+                headers: { 'X-CSRFToken': csrfToken, 'Content-Type': 'application/json' },
                 body: JSON.stringify({ file_url: fileUrl }),
             })
             .then(response => response.json())
@@ -146,23 +151,18 @@
                 alert('An error occurred while deleting the image.');
             });
         };
-    
-        /**
-         * Analyze Image
-         */
+
+        // Analyze Image
         const analyzeImage = (fileUrl) => {
             fetch('/analyze/', {
                 method: 'POST',
-                headers: {
-                    'X-CSRFToken': csrfToken,
-                    'Content-Type': 'application/json',
-                },
+                headers: { 'X-CSRFToken': csrfToken, 'Content-Type': 'application/json' },
                 body: JSON.stringify({ file_url: fileUrl }),
             })
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
-                    displayAnalyzedImage(data.analyzed_image_url, data.detections);
+                    displayAnalyzedImage(data.image_url, data.detections); // Ensure data.image_url is used
                 } else {
                     alert('Failed to analyze image. Please try again.');
                 }
@@ -172,10 +172,8 @@
                 alert('An error occurred while analyzing the image.');
             });
         };
-    
-        /**
-         * Display Uploaded Image
-         */
+
+        // Display Uploaded Image
         const displayUploadedImage = (fileUrl) => {
             uploadedImageContainer.innerHTML = `
                 <div class="uploaded-image-container">
@@ -184,102 +182,118 @@
                 </div>
                 <button class="btn btn-primary mt-3" id="analyze-button">Analyze the Image</button>
             `;
-            dragBox.style.display = 'none'; // Hide drag box
+            dragBox.style.display = 'none';
             attachDeleteListener(fileUrl);
             attachAnalyzeListener(fileUrl);
         };
-    
-        /**
-         * Display Analyzed Image and Detections
-         */
-        const displayAnalyzedImage = (analyzedImageUrl, detections) => {
-            const detectionResults = detections.map(d => 
-                `<li>${d.label} (${d.confidence * 100}%): ${d.box}</li>`
-            ).join('');
-    
+
+        // Display Analyzed Image with Bounding Boxes and Checkboxes
+        const displayAnalyzedImage = (imageUrl, detections) => {
             uploadedImageContainer.innerHTML = `
                 <div class="uploaded-image-container">
-                    <img src="${analyzedImageUrl}" alt="Analyzed Image" class="img-fluid mt-3">
+                    <img id="analyzed-image" src="${imageUrl}" alt="Analyzed Image" class="img-fluid mt-3">
+                    <div id="bounding-box-overlay" class="bounding-box-overlay"></div>
                     <button class="delete-button" id="delete-button">×</button>
                 </div>
                 <h4>Detected Objects:</h4>
-                <ul>${detectionResults}</ul>
+                <ul id="detection-list">
+                    ${detections.map((d, index) => `
+                        <li>
+                            <input type="checkbox" id="checkbox-${index}" checked>
+                            <label for="checkbox-${index}">${d.label} (${(d.confidence * 100).toFixed(2)}%)</label>
+                        </li>
+                    `).join('')}
+                </ul>
             `;
-            attachDeleteListener(analyzedImageUrl);
+
+            const imageElement = document.getElementById('analyzed-image');
+
+            // Wait for the image to load before calculating dimensions
+            imageElement.onload = () => {
+                const overlay = document.getElementById('bounding-box-overlay');
+                
+                // Get the original (natural) dimensions of the image
+                const originalWidth = imageElement.naturalWidth;
+                const originalHeight = imageElement.naturalHeight;
+
+                // Get the displayed (scaled) dimensions of the image
+                const displayedWidth = imageElement.width;
+                const displayedHeight = imageElement.height;
+
+                // Calculate scaling factors
+                const xScale = displayedWidth / originalWidth;
+                const yScale = displayedHeight / originalHeight;
+
+                // Add bounding boxes
+                detections.forEach((d, index) => {
+                    const [x1, y1, x2, y2] = d.box;
+
+                    // Scale bounding box coordinates to match displayed image dimensions
+                    const scaledX1 = x1 * xScale;
+                    const scaledY1 = y1 * yScale;
+                    const scaledX2 = x2 * xScale;
+                    const scaledY2 = y2 * yScale;
+
+                    // Create and style the bounding box
+                    const box = document.createElement('div');
+                    box.className = `bounding-box bounding-box-${index}`;
+                    box.style.left = `${scaledX1}px`;
+                    box.style.top = `${scaledY1}px`;
+                    box.style.width = `${scaledX2 - scaledX1}px`;
+                    box.style.height = `${scaledY2 - scaledY1}px`;
+                    overlay.appendChild(box);
+
+                    // Add functionality to toggle box visibility using the checkboxes
+                    const checkbox = document.getElementById(`checkbox-${index}`);
+                    checkbox.addEventListener('change', () => {
+                        box.style.display = checkbox.checked ? 'block' : 'none';
+                    });
+                });
+            };
+
+            attachDeleteListener(imageUrl);
         };
-    
-        /**
-         * Attach Delete Listener
-         */
+
+
+        // Attach Delete Listener
         const attachDeleteListener = (fileUrl) => {
             const deleteButton = document.getElementById('delete-button');
             if (deleteButton) {
                 deleteButton.addEventListener('click', () => deleteImage(fileUrl));
             }
         };
-    
-        /**
-         * Attach Analyze Listener
-         */
-         const attachAnalyzeListener = (fileUrl) => {
+
+        // Attach Analyze Listener
+        const attachAnalyzeListener = (fileUrl) => {
             const analyzeButton = document.getElementById('analyze-button');
             if (analyzeButton) {
-                analyzeButton.addEventListener('click', () => {
-                    console.log(`Analyze button clicked. Sending file_url: ${fileUrl}`); // Debugging
-
-                    fetch('/analyze/', {
-                        method: 'POST',
-                        headers: {
-                            'X-CSRFToken': csrfToken,
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify({ file_url: fileUrl }),
-                    })
-                    .then(response => response.json())
-                    .then(data => {
-                        if (data.success) {
-                            console.log('Analysis successful:', data); // Debugging
-                            displayAnalyzedImage(data.analyzed_image_url, data.detections);
-                        } else {
-                            console.error('Failed to analyze image:', data.error); // Debugging
-                            alert('Failed to analyze image. Please try again.');
-                        }
-                    })
-                    .catch(error => {
-                        console.error('Error:', error);
-                        alert('An error occurred while analyzing the image.');
-                    });
-                });
+                analyzeButton.addEventListener('click', () => analyzeImage(fileUrl));
             }
         };
 
-    
-        /**
-         * Drag-and-Drop Handling
-         */
+        // Drag-and-Drop Handling
         dragBox.addEventListener('dragover', (e) => {
             e.preventDefault();
             dragBox.classList.add('dragover');
         });
-    
+
         dragBox.addEventListener('dragleave', () => {
             dragBox.classList.remove('dragover');
         });
-    
+
         dragBox.addEventListener('drop', (e) => {
             e.preventDefault();
             dragBox.classList.remove('dragover');
             const file = e.dataTransfer.files[0];
             if (file) uploadImage(file);
         });
-    
+
         dragBox.addEventListener('click', () => inputFile.click());
-    
+
         inputFile.addEventListener('change', (e) => {
             const file = e.target.files[0];
             if (file) uploadImage(file);
         });
     </script>
-    
 </body>
 </html>
